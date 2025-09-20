@@ -6,15 +6,15 @@
 # !pip install scikit-learn pandas xgboost joblib biopython modlamp shap
 
 import os
-import pandas as pd # Data handling
-from modlamp.descriptors import GlobalDescriptor, PeptideDescriptor #Global - used to analysis the physiochemical , Peptide - Computes amino acid composition, transition, and distribution descriptors (like dipeptide composition, amphiphilicity, etc.).
-from Bio.SeqUtils.ProtParam import ProteinAnalysis #
+import pandas as pd  # Data handling
+from modlamp.descriptors import GlobalDescriptor, PeptideDescriptor  # Global: physicochemical, Peptide: AACs etc.
+from Bio.SeqUtils.ProtParam import ProteinAnalysis
 import xgboost as xgb
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, roc_auc_score
 import joblib
 
-# ======== Boman Scale ======== to analyze with boman index
+# ======== Boman Scale ========
 BOMAN_SCALE = {
     'A': 0.62, 'R': -2.53, 'N': -0.78, 'D': -0.90, 'C': 0.29,
     'E': -0.74, 'Q': -0.85, 'G': 0.48, 'H': -0.40, 'I': 1.38,
@@ -25,7 +25,7 @@ BOMAN_SCALE = {
 def calculate_boman(sequence):
     if not sequence:
         return float('nan')
-    return sum(BOMAN_SCALE.get(aa,0) for aa in sequence) / len(sequence)
+    return sum(BOMAN_SCALE.get(aa, 0) for aa in sequence) / len(sequence)
 
 # ======== Load AMP and Non-AMP datasets ========
 amp = pd.read_csv("AMP.csv")
@@ -39,7 +39,14 @@ valid_aas = set("ACDEFGHIKLMNPQRSTVWY")
 def clean_sequence(seq):
     return "".join([aa for aa in str(seq).upper().strip() if aa in valid_aas])
 
-data['Sequence'] = data['Sequence'].apply(clean_sequence)
+# Ensure sequence column exists
+if "Sequence" in data.columns:
+    data['Sequence'] = data['Sequence'].apply(clean_sequence)
+else:
+    # Fallback: use 3rd column if "Sequence" not found
+    data[data.columns[2]] = data[data.columns[2]].apply(clean_sequence)
+    data.rename(columns={data.columns[2]: "Sequence"}, inplace=True)
+
 sequences = data['Sequence'].tolist()
 
 # ======== Feature Extraction Function ========
@@ -62,7 +69,7 @@ def extract_features(sequences):
     # 4. Length
     length = [len(seq) for seq in sequences]
 
-    # 5. Isoelectric Point, Instability, Aromaticity, AACs
+    # 5. Isoelectric Point, Instability, Aromaticity, AACs, Aliphatic Index
     isoelectric_point = []
     instability_index = []
     aromaticity = []
@@ -77,15 +84,15 @@ def extract_features(sequences):
             aromaticity.append(analysed_seq.aromaticity())
             aa_percent = analysed_seq.amino_acids_percent
             aac_list.append(aa_percent)
-            AI = (aa_percent.get("A",0)*100 +
-                  aa_percent.get("V",0)*100*2.9 +
-                  (aa_percent.get("I",0)+aa_percent.get("L",0))*100*3.9)
+            AI = (aa_percent.get("A", 0) * 100 +
+                  aa_percent.get("V", 0) * 100 * 2.9 +
+                  (aa_percent.get("I", 0) + aa_percent.get("L", 0)) * 100 * 3.9)
             aliphatic_index.append(AI)
         else:
             isoelectric_point.append(float('nan'))
             instability_index.append(float('nan'))
             aromaticity.append(float('nan'))
-            aac_list.append({aa:0.0 for aa in valid_aas})
+            aac_list.append({aa: 0.0 for aa in valid_aas})
             aliphatic_index.append(float('nan'))
 
     # 6. Boman Index
@@ -133,7 +140,7 @@ xgb_model.fit(X_train, y_train)
 
 # ======== Evaluate Model ========
 xgb_pred = xgb_model.predict(X_test)
-xgb_prob = xgb_model.predict_proba(X_test)[:,1]
+xgb_prob = xgb_model.predict_proba(X_test)[:, 1]
 print("\n🔹 XGBoost Results")
 print(classification_report(y_test, xgb_pred))
 print("ROC-AUC:", roc_auc_score(y_test, xgb_prob))
@@ -147,7 +154,7 @@ def predict_new_sequence(seq, model, feature_columns):
     seq_clean = "".join([aa for aa in seq.upper() if aa in valid_aas])
     features = extract_features([seq_clean]).iloc[0].to_dict()
     f = pd.DataFrame([features])[feature_columns]
-    prob = model.predict_proba(f)[:,1][0]
+    prob = model.predict_proba(f)[:, 1][0]
     label = "AMP" if prob >= 0.5 else "Non-AMP"
     return label, prob, features
 
@@ -161,21 +168,23 @@ def explain_shap(model, X_sample):
     print("\n🔹 SHAP Feature Importance Bar")
     shap.plots.bar(shap_values)
 
-# ======== User Input ========
-sequence_input = input("\nEnter peptide sequence: ").strip()
-if sequence_input:
-    feature_columns = joblib.load("feature_columns.pkl")
-    label, prob, features = predict_new_sequence(sequence_input, xgb_model, feature_columns)
+# ======== CLI Entry Point ========
+if __name__ == "__main__":
+    # Run only if called directly, not when imported into app.py
+    sequence_input = input("\nEnter peptide sequence: ").strip()
+    if sequence_input:
+        feature_columns = joblib.load("feature_columns.pkl")
+        label, prob, features = predict_new_sequence(sequence_input, xgb_model, feature_columns)
 
-    print("\n🔹 Prediction")
-    print(f"Sequence: {sequence_input}")
-    print(f"Prediction: {label}, Probability: {prob:.3f}")
+        print("\n🔹 Prediction")
+        print(f"Sequence: {sequence_input}")
+        print(f"Prediction: {label}, Probability: {prob:.3f}")
 
-    print("\n🔹 Extracted Features:")
-    for k,v in features.items():
-        print(f"{k}: {v}")
+        print("\n🔹 Extracted Features:")
+        for k, v in features.items():
+            print(f"{k}: {v}")
 
-    X_sample = pd.DataFrame([features])[feature_columns]
-    explain_shap(xgb_model, X_sample)
-else:
-    print("⚠ No valid sequence entered.")
+        X_sample = pd.DataFrame([features])[feature_columns]
+        explain_shap(xgb_model, X_sample)
+    else:
+        print("⚠ No valid sequence entered.")
