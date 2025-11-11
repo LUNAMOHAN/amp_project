@@ -1,3 +1,11 @@
 gunicorn
 streamlit
 joblib
+GlobalDescriptor
+PeptideDescriptor
+ProteinAnalysis
+train_test_split
+classification_report
+roc_auc_score
+matplotlib
+shap
