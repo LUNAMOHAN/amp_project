@@ -9,7 +9,7 @@ from model import predict_new_sequence, extract_features
 model = joblib.load("xgb_amp_model.pkl")
 feature_columns = joblib.load("feature_columns.pkl")
 
-# ===== Build SHAP background dataset (X_train) =====
+# ===== Build  SHAP background dataset (X_train) =====
 # Recreate training sequences from AMP + NONAMP
 amp_df = pd.read_csv("AMP.csv")
 nonamp_df = pd.read_csv("NONAMP.csv")
