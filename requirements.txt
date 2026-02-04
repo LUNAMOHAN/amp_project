@@ -6,3 +6,7 @@ shap
 biopython
 scikit-learn
 modlamp
+xgboost
+pandas
+numpy
+
